@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pendulum-rl"
+version = "0.1.0"
+description = "Pendulum swing-up and Acrobot solved with every continuous and discrete RL method: DDPG, TD3, SAC, PPO, A2C, REINFORCE, CEM, DQN variants and tile-coding SARSA in one PyTorch code base, compared on the same environments with curves, heatmaps, tests, examples and a Kaggle/Colab notebook."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+keywords = [
+  "reinforcement-learning", "pendulum", "acrobot", "gymnasium", "continuous-control", "sac", "td3", "ddpg",
+  "ppo", "a2c", "reinforce", "cross-entropy-method", "dqn", "sarsa", "tile-coding", "pytorch", "educational",
+]
+dependencies = [
+  "numpy>=1.24",
+  "torch>=2.4",
+  "gymnasium[classic-control]>=1.0",
+  "matplotlib>=3.7",
+  "pillow>=9.0",
+]
+
+[project.scripts]
+pendulum-train = "pendulum_rl.train:main"
+pendulum-play = "pendulum_rl.play:main"
+pendulum-eval = "pendulum_rl.evaluate:main"
+pendulum-compare = "pendulum_rl.compare:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.9", "nbformat>=5.10"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pendulum_rl"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-m 'not slow'"
+markers = ["slow: real learning runs of several minutes on a loaded CPU (run with -m slow)"]
+
+[tool.ruff]
+line-length = 125
+target-version = "py310"
+extend-exclude = ["notebooks/*.ipynb"]  # generated from src/ by notebooks/build_notebook.py
+
+# CPU-only torch wheels for `uv pip install`; plain `pip install` ignores this block and uses PyPI.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E731", "B905", "E402"]
