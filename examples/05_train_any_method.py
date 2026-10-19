@@ -19,7 +19,7 @@ SMALL = {  # environment steps for a quick, convincing run on one CPU thread
     ("pendulum", "reinforce"): 60_000, ("pendulum", "cem"): 60_000,
     ("acrobot", "dqn"): 15_000, ("acrobot", "double-dqn"): 15_000, ("acrobot", "dueling-dqn"): 15_000,
     ("acrobot", "ppo"): 60_000, ("acrobot", "a2c"): 60_000, ("acrobot", "reinforce"): 60_000,
-    ("acrobot", "cem"): 40_000, ("acrobot", "sarsa"): 30_000,
+    ("acrobot", "cem"): 100_000, ("acrobot", "sarsa"): 30_000,
 }
 
 p = argparse.ArgumentParser()

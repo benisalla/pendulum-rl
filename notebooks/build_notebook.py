@@ -203,14 +203,14 @@ show("algorithms/policy_gradient.py", "PPO.update", "A2C.update")
 code("""
 ppo = train(default_config("pendulum", "ppo"))          # 100k steps
 a2c = train(default_config("pendulum", "a2c"))          # 150k steps
-reinforce = train(default_config("pendulum", "reinforce"))  # 300k steps
+reinforce = train(default_config("pendulum", "reinforce"))  # 600k steps
 """)
 
 md("""
 ## 7. CEM and discretized DQN
 
 **CEM** keeps a Gaussian over the 81 weights of a tiny policy, samples 50 of them, runs one episode
-each from the same start state, refits the Gaussian on the best 20%. No gradient at all.
+each (3 episodes per candidate, on the same start states), refits the Gaussian on the best 20%. No gradient at all.
 
 **Discretized DQN**: 5 torques (-2, -1, 0, 1, 2) are enough for a swing-up, so double DQN works.
 """)

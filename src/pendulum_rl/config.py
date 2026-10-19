@@ -75,10 +75,12 @@ class TrainConfig:
     max_grad_norm: float = 0.5
     init_log_std: float = 0.0
     episodes_per_batch: int = 10      # REINFORCE episodes per gradient step
+    anneal_lr: bool = False           # policy gradients: decay the learning rate linearly to 0 over the budget
 
     # cross-entropy method
     cem_population: int = 50
     cem_elite_frac: float = 0.2
+    cem_episodes: int = 1             # episodes (start states) per candidate; the score is their mean
     cem_init_std: float = 1.0
     cem_extra_std: float = 0.1        # extra noise, decayed, keeps the search from collapsing
 
@@ -98,6 +100,12 @@ class TrainConfig:
         return cls(**{k: v for k, v in d.items() if k in names})
 
 
+# Acrobot DQN: with lr 1e-3, a target copy every 500 steps and epsilon ending at 0.05, the
+# training episodes improved but the *greedy* policy kept falling back to -500 (it would hold
+# the arm still). A smaller lr, more frequent target copies and epsilon -> 0.01 (so training
+# visits the states the greedy policy visits) make the greedy policy stable.
+ACROBOT_DQN = dict(lr=5e-4, target_update=250, eps_end=0.01, eps_fraction=0.2)
+
 # Settings that make each (env, algo) pair learn within a CPU-minutes budget.
 DEFAULTS: dict[tuple[str, str], dict] = {
     ("pendulum", "ddpg"): dict(total_steps=15_000, eval_every=1_000),
@@ -107,19 +115,24 @@ DEFAULTS: dict[tuple[str, str], dict] = {
     # Pendulum's reward is dense and the useful horizon short: gamma 0.9-0.95 helps the
     # on-policy methods, whose advantage estimates are otherwise very noisy.
     ("pendulum", "ppo"): dict(total_steps=100_000, eval_every=5_000, n_steps=2048, gamma=0.95, lr=1e-3, hidden=64,
-                              reward_scale=0.1, epochs=10, minibatch=64, gae_lambda=0.95),
+                              reward_scale=0.1, epochs=10, minibatch=64, gae_lambda=0.95, anneal_lr=True),
     ("pendulum", "a2c"): dict(total_steps=150_000, eval_every=5_000, n_steps=32, gamma=0.95, lr=7e-4, hidden=64,
-                              reward_scale=0.1, gae_lambda=0.95, max_grad_norm=0.5),
-    ("pendulum", "reinforce"): dict(total_steps=300_000, eval_every=10_000, gamma=0.95, lr=3e-3, hidden=64,
+                              reward_scale=0.1, gae_lambda=0.95, max_grad_norm=0.5, anneal_lr=True),
+    ("pendulum", "reinforce"): dict(total_steps=600_000, eval_every=20_000, gamma=0.95, lr=3e-3, hidden=64,
                                     episodes_per_batch=10),
-    ("pendulum", "cem"): dict(total_steps=200_000, eval_every=10_000, hidden=16),
-    ("acrobot", "dqn"): dict(total_steps=40_000, eval_every=2_500),
-    ("acrobot", "double-dqn"): dict(total_steps=40_000, eval_every=2_500),
-    ("acrobot", "dueling-dqn"): dict(total_steps=40_000, eval_every=2_500),
+    # CEM: one generation = population x episodes, so it needs many env steps, but they are
+    # cheap (NumPy policy, no gradient): 1.5M steps take about 2 minutes.
+    ("pendulum", "cem"): dict(total_steps=1_500_000, eval_every=50_000, hidden=16, cem_population=50, cem_episodes=3),
+    ("acrobot", "dqn"): dict(total_steps=60_000, eval_every=2_500, **ACROBOT_DQN),
+    ("acrobot", "double-dqn"): dict(total_steps=60_000, eval_every=2_500, **ACROBOT_DQN),
+    ("acrobot", "dueling-dqn"): dict(total_steps=60_000, eval_every=2_500, **ACROBOT_DQN),
     ("acrobot", "ppo"): dict(total_steps=150_000, eval_every=5_000, n_steps=1024, hidden=64, lr=3e-4, ent_coef=0.0),
     ("acrobot", "a2c"): dict(total_steps=150_000, eval_every=5_000, n_steps=16, hidden=64, lr=7e-4, gae_lambda=1.0,
                              ent_coef=0.01),
-    ("acrobot", "reinforce"): dict(total_steps=150_000, eval_every=5_000, hidden=64, lr=3e-3, episodes_per_batch=5),
+    # REINFORCE on Acrobot: a uniform policy almost never reaches the goal, so it needs many
+    # small batches (many updates) and a large step to escape -500, then annealing to stay there.
+    ("acrobot", "reinforce"): dict(total_steps=100_000, eval_every=5_000, hidden=64, lr=1e-2, episodes_per_batch=4,
+                                   anneal_lr=True),
     ("acrobot", "cem"): dict(total_steps=150_000, eval_every=5_000, hidden=16, cem_population=30),
     ("acrobot", "sarsa"): dict(total_steps=50_000, eval_every=2_500),
 }

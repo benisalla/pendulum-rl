@@ -1,7 +1,7 @@
 # Tests
 
 ```bash
-pytest -q            # the fast suite: CPU, one thread
+pytest -q            # the fast suite: 40 tests, about 30 s on one CPU thread
 pytest -q -m slow    # opt-in: real SAC swing-up check (a few minutes on a loaded CPU)
 ```
 

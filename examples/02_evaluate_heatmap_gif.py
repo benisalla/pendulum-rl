@@ -22,5 +22,5 @@ print(f"SAC on Pendulum-v1: {res['mean']:.1f} +- {res['std']:.1f} over 10 episod
 print("per-episode returns:", [round(r) for r in res["returns"]])
 
 plot_heatmaps({"sac": agent}, "examples/output/sac_heatmaps.png")
-ret = save_gif(agent, "examples/output/sac_pendulum.gif")
+ret = save_gif(agent, "examples/output/sac_pendulum.gif", seed=10_024)  # seed 10024 starts hanging still: a full swing-up
 print(f"wrote examples/output/sac_heatmaps.png and sac_pendulum.gif (episode return {ret:.1f})")

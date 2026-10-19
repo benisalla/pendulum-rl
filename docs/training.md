@@ -50,8 +50,11 @@ handful of transitions of a single untrained policy.
 | `tau` | 0.005 | target nets move 0.5% per step: slow targets stop the critic from chasing its own tail |
 | `exploration_noise` | 0.1 x max torque | DDPG/TD3 actors are deterministic; without noise they never try anything new |
 | SAC `init_alpha` | 0.2, tuned automatically to entropy -1 | no noise schedule to tune: the temperature finds itself |
-| DQN epsilon | 1.0 -> 0.05 over the first 30% (20% for discretized) | explore broadly first, then exploit |
-| DQN target copy | every 500 updates (1000 for discretized) | a fixed target for a while = a supervised regression problem between copies |
+| DQN epsilon | 1.0 -> 0.05 over the first 20% (Pendulum), 1.0 -> 0.01 (Acrobot) | explore broadly first, then exploit; on Acrobot a small final epsilon keeps the training data close to the greedy policy that is evaluated |
+| DQN target copy | every 1000 updates (Pendulum), 250 with lr 5e-4 (Acrobot) | a fixed target for a while = a supervised regression problem between copies |
+| `anneal_lr` | on for PPO / A2C (Pendulum), REINFORCE (Acrobot) | linear decay to 0 stops late collapses of an already good policy |
+| REINFORCE (Acrobot) | lr 1e-2, 4 episodes per batch | a uniform policy rarely reaches the goal; many large updates are needed to escape -500 |
+| CEM (Pendulum) | population 50, 3 episodes per candidate, 1.5M steps | several start states per candidate stop the elites from overfitting one start |
 | PPO | rollout 2048 (Pendulum) / 1024 (Acrobot), 10 epochs, minibatch 64, clip 0.2, GAE 0.95 | the values from the PPO paper's MuJoCo setting |
 | A2C | rollout 32 (Pendulum) / 16 (Acrobot) steps, one step per rollout | A2C's point: small, frequent, on-policy updates |
 | SARSA | 8 tilings x 6 tiles per dim, alpha 0.5 / 8, lambda 0.9, epsilon 0 | Sutton & Barto's Acrobot setting, scaled down |
@@ -62,11 +65,11 @@ handful of transitions of a single untrained policy.
 |---|---|---|
 | DDPG / TD3 / SAC | 15 000 steps (75 episodes) | n/a |
 | discretized DQN | 30 000 | n/a |
-| DQN / double / dueling | n/a | 40 000 |
+| DQN / double / dueling | n/a | 60 000 |
 | PPO | 100 000 | 150 000 |
 | A2C | 150 000 | 150 000 |
-| REINFORCE | 300 000 | 150 000 |
-| CEM | 200 000 | 150 000 |
+| REINFORCE | 600 000 | 100 000 |
+| CEM | 1 500 000 (about 2 min: no gradients) | 150 000 |
 | SARSA(lambda) | n/a | 50 000 |
 
 The off-policy methods take one gradient step per environment step, so they get the

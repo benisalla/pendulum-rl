@@ -11,7 +11,7 @@ is explained step by step in the docs and a Kaggle/Colab notebook.**
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x-ee4c2c.svg)](https://pytorch.org)
 [![Gymnasium](https://img.shields.io/badge/Gymnasium-classic--control-0081a5.svg)](https://gymnasium.farama.org)
-[![Tests](https://img.shields.io/badge/tests-__TESTS__%20passing-brightgreen.svg)](docs/testing.md)
+[![Tests](https://img.shields.io/badge/tests-40%20passing-brightgreen.svg)](docs/testing.md)
 
 The goal is to *see* how each method works: one file per family, the equations next to
 the code, the same budget unit (environment steps) for everyone, and figures that show
@@ -34,6 +34,31 @@ flowchart LR
     S --> M
     M["Monitor: same step budget,<br/>same evaluation"] --> R["curves · table ·<br/>V(s) / policy heatmaps · GIFs"]
 ```
+
+## Before and after training
+
+The same start state (hanging down, nearly still, the hardest one), the same network:
+left freshly initialised, right after training. The caption is the episode return.
+
+**Pendulum, SAC** (15 000 training steps, 1.8 min on one CPU thread): the untrained actor
+never gets the rod upright (return -1846); the trained one rocks it to gain energy, then
+brakes and holds it upright (-244).
+
+![Pendulum before and after](assets/before_after_pendulum.gif)
+
+**Acrobot, A2C** (the best final return of the eight Acrobot methods): the untrained policy
+never reaches the line in 500 steps; the trained one swings the tip over it in 88 steps.
+
+![Acrobot before and after](assets/before_after_acrobot.gif)
+
+Every method, the same hanging start (Pendulum) and the same Acrobot start. From this start,
+about -250 is the best a swing-up can score:
+
+![Pendulum: every method](assets/grid_pendulum.gif)
+
+![Acrobot: every method](assets/grid_acrobot.gif)
+
+`python scripts/make_gifs.py` regenerates all four from the checkpoints in `runs/`.
 
 | method | `--algo` | env | how it works, in one line | code |
 |---|---|---|---|---|
@@ -86,7 +111,61 @@ python examples/05_train_any_method.py --algo td3          # or --env acrobot --
 
 ## Results
 
-__RESULTS__
+These are **short, single-seed CPU runs** (seed 0, one thread, a shared machine). They
+show that every method learns and how fast it learns. They are not benchmarks.
+Protocol: the deterministic policy, 20 final episodes from the same start states for
+every method, and "steps to reach" = first evaluation (5 episodes) at the threshold.
+All 16 runs together take 31 minutes of training. Details, the reasoning behind each
+result, and an honest log of the fixes made after the first full run are in
+[docs/evaluation.md](docs/evaluation.md).
+
+### Pendulum-v1: random policy about -1200, solved at -200
+
+| method | env steps | steps to reach -200 | final return (20 episodes) | wall time |
+|---|---|---|---|---|
+| `sac` | 15,000 | 6,000 | **-119.0** ± 82.5 | 1.8 min |
+| `ddpg` | 15,000 | 5,000 | -121.1 ± 83.1 | 3.2 min |
+| `discretized-dqn` | 30,000 | 12,000 | -121.5 ± 82.7 | 1.1 min |
+| `td3` | 15,000 | 6,000 | -123.1 ± 85.0 | 3.2 min |
+| `ppo` | 100,000 | 20,000 | -125.0 ± 86.8 | 1.4 min |
+| `reinforce` | 600,000 | 320,000 | -149.2 ± 99.4 | 2.8 min |
+| `cem` | 1,500,000 | 1,400,000 | -175.5 ± 116.2 | 1.7 min |
+| `a2c` | 150,000 | 55,000 | -188.0 ± 196.9 | 1.6 min |
+
+![Pendulum curves](assets/pendulum_curves.png)
+
+What the table shows:
+- **Off-policy methods solve it fastest.** DDPG, TD3 and SAC solve it in 5-6k steps because the replay buffer reuses every transition.
+- **Five torques are enough for DQN.** With the action discretized into 5 values it reaches the same final return.
+- **PPO** needs 4x the steps of SAC but about the same wall time.
+- **REINFORCE and CEM** need 40x and 230x the steps of SAC (600k and 1.4M against 6k).
+- **A2C** is the least stable: a few start states end in failed swing-ups.
+- **The ± ~85 is the start state**, not the policy: a good episode from near the top scores about 0, and from hanging still about -250.
+
+**What they learned.** The top row shows V(s) over (theta, theta_dot), with theta = 0 upright. The bottom row shows the torque. Every critic finds the same diagonal band of states that coast to the top. Every policy is nearly bang-bang: pump energy with the motion, brake on the band.
+
+![Pendulum heatmaps](assets/pendulum_heatmaps.png)
+
+### Acrobot-v1: random policy -500, solved at -100
+
+| method | env steps | steps to reach -100 | final return (20 episodes) | wall time |
+|---|---|---|---|---|
+| `a2c` | 150,000 | 40,000 | **-80.5** ± 13.3 | 1.5 min |
+| `dqn` | 60,000 | 27,500 | -84.7 ± 14.3 | 2.9 min |
+| `cem` | 150,000 | 80,000 | -85.2 ± 26.1 | 0.3 min |
+| `dueling-dqn` | 60,000 | 17,500 | -85.7 ± 12.8 | 2.7 min |
+| `reinforce` | 100,000 | 25,000 | -86.6 ± 37.6 | 0.7 min |
+| `ppo` | 150,000 | 25,000 | -87.1 ± 34.3 | 3.1 min |
+| `sarsa` | 50,000 | **12,500** | -96.2 ± 33.3 | 0.2 min |
+| `double-dqn` | 60,000 | 20,000 | -108.0 ± 91.5 | 2.3 min |
+
+![Acrobot curves](assets/acrobot_curves.png)
+
+What the table shows:
+- **Tile-coded SARSA(lambda) is the fastest to the threshold**, with no neural network: 12 500 steps in 12 seconds.
+- **Every method reached -100 during training.**
+- **Double DQN's final mean misses the threshold.** Its best evaluation was -72, but one or two of its 20 final episodes stall at the bottom.
+- **Some first-run settings did not hold up.** The first full run left DQN's greedy policy unstable, REINFORCE stuck at -500 on Acrobot, PPO collapsing late on Pendulum and CEM stalling. The causes and fixes are in the [fix log](docs/evaluation.md#fixes-made-after-the-first-full-run-honest-log).
 
 ## Train for real: Kaggle / Colab notebook
 
@@ -115,9 +194,9 @@ src/pendulum_rl/
   viz.py           return curves, value / policy heatmaps, GIFs
 docs/              architecture, environment, training, evaluation, testing
 examples/          six scripts, from one training run to the full comparison
-tests/             __TESTS__ fast tests (+1 opt-in slow learning test)
+tests/             40 fast tests (+1 opt-in slow learning test)
 notebooks/         build_notebook.py -> train_colab_kaggle.ipynb
-scripts/run_all.sh every real run behind the tables above
+scripts/          run_all.sh (every real run behind the tables), make_gifs.py (before/after + grid GIFs)
 assets/            the figures and tables of the Results section
 ```
 

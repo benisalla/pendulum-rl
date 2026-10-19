@@ -41,6 +41,7 @@ class PolicyGradientAgent(Agent):
             self.critic = mlp(self.s_dim, 1, cfg.hidden, out_gain=1.0)
             params += list(self.critic.parameters())
         self.opt = torch.optim.Adam(params, lr=cfg.lr)
+        self.monitor = None
 
     def modules(self):
         return {"policy": self.policy, **({"critic": self.critic} if self.uses_critic else {})}
@@ -108,6 +109,12 @@ class PolicyGradientAgent(Agent):
         raise NotImplementedError
 
     def step_optimizer(self, loss):
+        if self.cfg.anneal_lr and self.monitor is not None:
+            # lr decays linearly to 0 over the budget: late in training, smaller steps keep a
+            # good policy from being pushed off a cliff by one unlucky batch
+            frac = max(0.0, 1.0 - self.monitor.steps / self.cfg.total_steps)
+            for g in self.opt.param_groups:
+                g["lr"] = self.cfg.lr * frac
         self.opt.zero_grad()
         loss.backward()
         params = [p for g in self.opt.param_groups for p in g["params"]]
@@ -115,6 +122,7 @@ class PolicyGradientAgent(Agent):
         self.opt.step()
 
     def learn(self, env, monitor):
+        self.monitor = monitor
         s, _ = env.reset(seed=self.cfg.seed)
         state = (s, 0.0)
         while not monitor.done:
@@ -160,13 +168,22 @@ class PPO(PolicyGradientAgent):
 
 
 class Reinforce(PolicyGradientAgent):
+    """REINFORCE with a time-indexed baseline.
+
+    A_t = G_t - b_t, where b_t is the mean return-to-go *at the same time step t* over the
+    batch of episodes. Why not just normalise all G_t together? On Acrobot almost every
+    early episode fails with identical rewards (-1 x 500): pooled normalisation then turns
+    "early step vs late step" into a fake signal that drowns the rare successful episode.
+    With b_t, identical failed episodes give exactly zero gradient, and a success stands out.
+    """
+
     uses_critic = False
 
     def learn(self, env, monitor):
-        cfg = self.cfg
+        cfg, self.monitor = self.cfg, monitor
         s, _ = env.reset(seed=cfg.seed)
         while not monitor.done:
-            states, actions, returns = [], [], []
+            states, actions, episode_rtgs = [], [], []
             for _ in range(cfg.episodes_per_batch):  # complete episodes: Monte Carlo returns
                 rewards, done, ep_ret = [], False, 0.0
                 while not done:
@@ -183,12 +200,18 @@ class Reinforce(PolicyGradientAgent):
                 for r in reversed(rewards):  # G_t = r_t + gamma * G_{t+1}
                     g = r + cfg.gamma * g
                     rtg.append(g)
-                returns += rtg[::-1]
+                episode_rtgs.append(np.array(rtg[::-1], np.float32))
                 if monitor.done:
                     break
+            # b_t = mean over episodes of G_t (an episode that already ended contributes 0)
+            T = max(len(g) for g in episode_rtgs)
+            padded = np.zeros((len(episode_rtgs), T), np.float32)
+            for i, g in enumerate(episode_rtgs):
+                padded[i, : len(g)] = g
+            baseline = padded.mean(0)
+            adv = np.concatenate([g - baseline[: len(g)] for g in episode_rtgs])
+            adv_t = to_tensor(adv / (adv.std() + 1e-8))
             s_t, a_t = to_tensor(np.array(states)), to_tensor(np.array(actions))
-            g_t = to_tensor(np.array(returns))
-            g_t = (g_t - g_t.mean()) / (g_t.std() + 1e-8)  # baseline + scale
             dist = self.policy.dist(s_t)
-            loss = -(self.policy.log_prob(dist, a_t) * g_t).mean() - cfg.ent_coef * self.policy.entropy(dist).mean()
+            loss = -(self.policy.log_prob(dist, a_t) * adv_t).mean() - cfg.ent_coef * self.policy.entropy(dist).mean()
             self.step_optimizer(loss)

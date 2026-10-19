@@ -112,9 +112,17 @@ temperature:     L_alpha = -log(alpha) * (log pi(a|s) + target_entropy),  target
 All three ascend `grad J = E[ grad log pi(a|s) * A ]`; A says how much better than usual
 the action was. They differ in A and in how hard each batch is used.
 
-**REINFORCE.** A = return-to-go `G_t = sum_k gamma^k r_{t+k}` of complete episodes,
-normalised over the batch (subtracting the mean is the simplest baseline). Unbiased, very
-noisy: on Pendulum one episode's return depends a lot on the random start state.
+**REINFORCE.** A = return-to-go `G_t = sum_k gamma^k r_{t+k}` of complete episodes minus
+a **time-indexed baseline** `b_t` = the mean of `G_t` at the same step t over the batch of
+episodes. Unbiased, no critic, very noisy: on Pendulum one episode's return depends a lot
+on the random start state.
+
+Why not just normalise all the `G_t` of the batch together (the textbook version)? We tried
+that first, and on Acrobot it never left -500. Almost every early episode fails with the
+same rewards (-1 x 500), so their `G_t` differ only by *when* step t happened. Pooled
+normalisation then pushes "early" actions down and "late" actions up: a fake signal that
+drowns the one episode in fifty that reaches the goal. With `b_t`, identical failed
+episodes give exactly zero gradient and a success stands out.
 
 **A2C.** A critic `V(s)` is learned with the policy; A is the GAE (below) over short
 rollouts of 16-32 steps; **one** gradient step on
@@ -144,6 +152,10 @@ reason to push further; same for A < 0 and rho < 0.8. The `min` makes it a pessi
 bound: the clip can only remove improvement, never add it. Example 03 prints how many
 samples hit the clip after one update.
 
+**Learning-rate annealing** (`anneal_lr`, on for PPO and A2C on Pendulum and for REINFORCE on
+Acrobot): lr decays linearly to 0 over the budget. Without it, PPO on Pendulum held -126
+for 50 000 steps and then collapsed to -980 in one update at 90 000 steps; with it, it holds.
+
 Shared details: advantages normalised per minibatch (PPO), gradient norm clipped at 0.5,
 the Gaussian log-std is a free parameter starting at 0 (std 1), the last policy layer is
 initialised small so the first actions are near 0 (the centre of the torque range).
@@ -152,7 +164,7 @@ initialised small so the first actions are near 0 (the centre of the torque rang
 
 ```
 theta_i ~ N(mu, diag(sigma^2)),  i = 1..50
-score_i = return of one episode with policy theta_i (all on the same start state)
+score_i = mean return of 3 episodes with policy theta_i (all candidates on the same 3 start states)
 elite   = the 20% best theta_i
 mu, sigma^2 <- mean(elite), var(elite) + extra_noise^2          (extra noise decays to 0)
 ```
@@ -160,7 +172,11 @@ mu, sigma^2 <- mean(elite), var(elite) + extra_noise^2          (extra noise dec
 No gradient, no critic, no Bellman equation; works as long as the policy has few weights
 (here `3 -> 16 -> 1`, 81 weights, NumPy only). Running all candidates of a generation from
 the same start state is "common random numbers": the ranking then compares policies, not
-luck with the start state. Cost: a generation is 50 whole episodes (10 000 Pendulum steps).
+luck with the start state. Scoring each candidate on several start states (`cem_episodes = 3`)
+matters: with one, the elites were the policies that happened to suit that one start, and
+CEM stalled near -720 on Pendulum; with three it reaches about -150. Cost: a generation is
+150 whole episodes (30 000 Pendulum steps), so CEM gets 1.5M steps, which take about 2 minutes
+because the policy is a NumPy MLP and there is no gradient.
 
 ## 8. DQN family (`algorithms/dqn.py`)
 
@@ -168,8 +184,8 @@ luck with the start state. Cost: a generation is 50 whole episodes (10 000 Pendu
 dqn:          y = r + gamma * (1 - d) * max_a Q'(s', a)
 double-dqn:   y = r + gamma * (1 - d) * Q'(s', argmax_a Q(s', a))      # online chooses, target evaluates
 dueling-dqn:  Q(s, a) = V(s) + A(s, a) - mean_a A(s, a), with the double-DQN target
-loss:         Huber(Q(s, a) - y), gradient norm clipped at 10, Q' copied every 500 updates
-behaviour:    epsilon-greedy, epsilon 1 -> 0.05 linearly over the first 30% of the budget
+loss:         Huber(Q(s, a) - y), gradient norm clipped at 10, Q' copied every 250 updates (Acrobot)
+behaviour:    epsilon-greedy, epsilon 1 -> 0.01 linearly over the first 20% of the budget (Acrobot)
 ```
 
 - **Why double.** `max` over noisy estimates is biased upward (the largest of several
@@ -179,6 +195,12 @@ behaviour:    epsilon-greedy, epsilon 1 -> 0.05 linearly over the first 30% of t
   V stream learns from every transition regardless of the action; the advantage stream
   only has to learn the differences. Subtracting the mean advantage fixes the V / A split.
 - **discretized-dqn** = double DQN on `DiscretizedAction(Pendulum, 5)`.
+- **Greedy vs epsilon-greedy.** In the first Acrobot runs (lr 1e-3, target copy every 500,
+  epsilon ending at 0.05) the *training* episodes reached -100 to -150, but the *greedy*
+  policy kept falling back to -500: near the hanging position the three Q values are almost
+  equal and the greedy policy could pick "do nothing" forever, while epsilon-greedy got
+  kicked out of it by random actions. A smaller lr (5e-4), a target copy every 250 updates
+  and epsilon ending at 0.01 (so the data looks like what the greedy policy does) fixed it.
 
 ## 9. SARSA(lambda) with tile coding (`algorithms/sarsa.py`)
 

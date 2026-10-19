@@ -4,7 +4,8 @@ No gradients, no value function, no Bellman equation. Keep a Gaussian N(mu, sigm
 the flat weight vector of a small policy network; each generation:
 
 1. sample ``cem_population`` weight vectors,
-2. run one episode with each (all on the same start state, so they are compared fairly),
+2. run ``cem_episodes`` episodes with each (all candidates on the same start states, so
+   they are compared fairly; several start states stop the elites from overfitting one),
 3. keep the best ``cem_elite_frac`` of them (the elites),
 4. refit mu and sigma to the elites (plus a little decaying extra noise so sigma does not
    collapse too early).
@@ -84,11 +85,12 @@ class CEM(Agent):
         std = self.params.std.numpy().astype(np.float64)
         generation = 0
         while not monitor.done:
-            seed = int(self.rng.integers(1 << 30))  # same start state for the whole population
+            # the same start states for the whole population ("common random numbers")
+            seeds = [int(x) for x in self.rng.integers(1 << 30, size=cfg.cem_episodes)]
             pop = mean + std * self.rng.standard_normal((cfg.cem_population, mean.size))
             scores = []
             for theta in pop:
-                scores.append(self._episode(env, theta, seed, monitor))
+                scores.append(np.mean([self._episode(env, theta, sd, monitor) for sd in seeds]))
                 if monitor.done:
                     break
             elite = pop[np.argsort(scores)[-n_elite:]] if len(scores) == len(pop) else pop[:0]
